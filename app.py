@@ -2,11 +2,31 @@ from flask import Flask, render_template, request, jsonify
 import sqlite3, pickle, numpy as np, os, threading
 from sklearn.metrics.pairwise import cosine_similarity
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 app = Flask(__name__)
 log_messages = []
 search_lock = threading.Lock()
+
+# ✅ Cache toàn cục - chỉ load 1 lần khi start Flask
+_vectorizer = None
+_tfidf_matrix = None
+_file_names = None
+
+def load_cache():
+    global _vectorizer, _tfidf_matrix, _file_names
+    if _vectorizer is None:
+        print("🔄 Đang load vectorizer.pkl...")
+        with open("vectorizer.pkl", "rb") as f:
+            _vectorizer = pickle.load(f)
+        print("🔄 Đang load tfidf_matrix.npy (~40MB)...")
+        _tfidf_matrix = np.load("tfidf_matrix.npy")
+        with open("filenames.pkl", "rb") as f:
+            _file_names = pickle.load(f)
+        print("✅ Cache loaded xong!")
+
+# Gọi ngay khi app khởi động
+with app.app_context():
+    if os.path.exists("vectorizer.pkl"):
+        load_cache()
 
 def add_log(msg):
     log_messages.append(msg)
@@ -21,7 +41,6 @@ def search():
     with search_lock:
         log_messages = []
 
-        # Buoc 1: Nhan file upload
         if "file" not in request.files or request.files["file"].filename == "":
             return jsonify({"error": "Vui long chon file .txt!"}), 400
 
@@ -33,7 +52,7 @@ def search():
         word_count = len(input_text_raw.split())
         add_log(f"Doc file: {uploaded_file.filename} ({word_count} tu)")
 
-        # Buoc 2: Phat hien ngon ngu
+        # Phát hiện ngôn ngữ
         has_vietnamese = any("\u00C0" <= c <= "\u1EF9" for c in input_text_raw)
         if has_vietnamese:
             add_log("Phat hien tieng Viet -> Dang dich sang tieng Anh...")
@@ -44,47 +63,17 @@ def search():
             add_log("Phat hien tieng Anh -> Bo qua buoc dich")
             input_text = input_text_raw
 
-        # Buoc 3: Load vectorizer
-        vectorizer_path = os.path.join(BASE_DIR, "vectorizer.pkl")
-        add_log("Dang load vectorizer.pkl...")
-        if not os.path.exists(vectorizer_path):
+        # ✅ Dùng cache thay vì load lại
+        if _vectorizer is None:
             return jsonify({"error": "Chua co vectorizer.pkl, hay chay chuanhoa.py truoc!"}), 500
-        with open(vectorizer_path, "rb") as f:
-            vectorizer = pickle.load(f)
+
+        vectorizer   = _vectorizer
+        tfidf_matrix = _tfidf_matrix
+        file_names   = _file_names
         feature_names = vectorizer.get_feature_names_out()
-        add_log(f"Vectorizer loaded: {len(feature_names)} tu khoa")
+        add_log(f"Vectorizer (cache): {len(feature_names)} tu khoa | Ma tran: {tfidf_matrix.shape}")
 
-        # Buoc 4: Load ma tran TF-IDF
-        matrix_path   = os.path.join(BASE_DIR, "tfidf_matrix.npy")
-        filenames_path = os.path.join(BASE_DIR, "filenames.pkl")
-
-        if os.path.exists(matrix_path) and os.path.exists(filenames_path):
-            add_log("Dang load ma tran tu cache (tfidf_matrix.npy)...")
-            tfidf_matrix = np.load(matrix_path)
-            with open(filenames_path, "rb") as f:
-                file_names = pickle.load(f)
-            add_log(f"Load cache xong: ma tran {tfidf_matrix.shape}")
-        else:
-            add_log("Khong co cache -> Dang rebuild ma tran tu SQLite...")
-            db_path = os.path.join(BASE_DIR, "ir_database.db")
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute("SELECT id, filename FROM documents ORDER BY id")
-            doc_rows   = cur.fetchall()
-            doc_ids    = [r[0] for r in doc_rows]
-            file_names = [r[1] for r in doc_rows]
-            term_index = {term: idx for idx, term in enumerate(feature_names)}
-            n_docs, n_terms = len(doc_ids), len(feature_names)
-            tfidf_matrix = np.zeros((n_docs, n_terms))
-            doc_index = {doc_id: idx for idx, doc_id in enumerate(doc_ids)}
-            cur.execute("SELECT doc_id, term, tfidf FROM tfidf_features")
-            for doc_id, term, tfidf in cur.fetchall():
-                if doc_id in doc_index and term in term_index:
-                    tfidf_matrix[doc_index[doc_id]][term_index[term]] = tfidf
-            conn.close()
-            add_log(f"Rebuild xong: ma tran {tfidf_matrix.shape}")
-
-        # Buoc 5: Vector hoa query
+        # Vector hóa query
         add_log("Dang vector hoa van ban dau vao...")
         query_vector = vectorizer.transform([input_text])
         query_array  = query_vector.toarray()[0]
@@ -95,8 +84,8 @@ def search():
             if score > 0:
                 add_log(f"&nbsp;&nbsp;&nbsp;- <b>{term}</b>: {score:.4f}")
 
-        # Buoc 6: Tinh Cosine Similarity
-        add_log("Dang tinh Cosine Similarity voi toan bo corpus...")
+        # Cosine Similarity
+        add_log("Dang tinh Cosine Similarity...")
         similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
         add_log(f"Tinh xong {len(similarities)} diem tuong dong")
 
@@ -108,10 +97,9 @@ def search():
             results.append({"rank": rank, "filename": fname, "similarity": round(sim, 2)})
             add_log(f"#{rank}: {fname} - {sim:.2f}%")
 
-        # Buoc 7: Luu ket qua vao DB
+        # Lưu kết quả
         add_log("Dang luu ket qua vao search_results...")
-        db_path = os.path.join(BASE_DIR, "ir_database.db")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect("ir_database.db")
         cur = conn.cursor()
         cur.executemany(
             "INSERT INTO search_results (query_file, matched_file, similarity, rank) VALUES (?, ?, ?, ?)",
