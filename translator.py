@@ -1,18 +1,19 @@
-from transformers import MarianMTModel, MarianTokenizer
-
+# translator.py
 MODEL_NAME = "Helsinki-NLP/opus-mt-vi-en"
+_tokenizer = None
+_model = None
 
-print("Đang tải model dịch (lần đầu ~300MB)...")
-tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
-model = MarianMTModel.from_pretrained(MODEL_NAME)
-print("Tải xong!")
+def translate_vi_to_en(text: str, chunk_size: int = 2000) -> str:
+    global _tokenizer, _model
+    if _model is None:
+        from transformers import MarianMTModel, MarianTokenizer  
+        print("Dang tai model dich (lan dau ~300MB)...")
+        _tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
+        _model = MarianMTModel.from_pretrained(MODEL_NAME)
+        print("Tai xong!")
 
-def translate_vi_to_en(text: str, chunk_size: int = 400) -> str:
-    """Dịch văn bản tiếng Việt sang tiếng Anh, tự chia nhỏ nếu text dài."""
-    # Chia theo câu trước, rồi nhóm thành chunks ~400 ký tự
     sentences = text.replace("\n", " ").split(". ")
-    chunks = []
-    current = ""
+    chunks, current = [], ""
     for s in sentences:
         if len(current) + len(s) < chunk_size:
             current += s + ". "
@@ -25,15 +26,14 @@ def translate_vi_to_en(text: str, chunk_size: int = 400) -> str:
 
     translated_parts = []
     for chunk in chunks:
-        inputs = tokenizer(
+        inputs = _tokenizer(
             [chunk],
             return_tensors="pt",
             padding=True,
             truncation=True,
             max_length=512
         )
-        outputs = model.generate(**inputs, num_beams=4)
-        translated = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        translated_parts.append(translated)
+        outputs = _model.generate(**inputs, num_beams=4)
+        translated_parts.append(_tokenizer.decode(outputs[0], skip_special_tokens=True))
 
     return " ".join(translated_parts)

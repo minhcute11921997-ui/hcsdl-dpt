@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Tim kiem Van ban IR</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #f0f2f5;
+        }
+
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        #log-box {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: monospace;
+            font-size: 0.85rem;
+            height: 300px;
+            overflow-y: auto;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .log-line {
+            margin: 2px 0;
+        }
+
+        .result-card {
+            transition: transform 0.2s;
+        }
+
+        .result-card:hover {
+            transform: translateY(-3px);
+        }
+
+        .rank-badge {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        #spinner {
+            display: none;
+        }
+
+        #drop-zone {
+            border: 2px dashed #adb5bd;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        #drop-zone.dragover {
+            background: #e8f4ff;
+            border-color: #0d6efd;
+        }
+
+        #file-info {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container py-4">
+        <div class="text-center mb-4">
+            <h2 class="fw-bold">He thong Tim kiem Van ban</h2>
+            <p class="text-muted">TF-IDF + Cosine Similarity | Ho tro Tieng Viet va Tieng Anh</p>
+        </div>
+
+        <div class="row g-4">
+            <!-- Input -->
+            <div class="col-12">
+                <div class="card p-4">
+                    <label class="form-label fw-semibold">Chon file van ban (.txt)</label>
+
+                    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+                        <p class="mb-1 text-muted">Keo tha file vao day hoac nhan de chon file</p>
+                        <small class="text-muted">Chi ho tro file .txt</small>
+                        <input type="file" id="file-input" accept=".txt" style="display:none"
+                            onchange="onFileSelect(this)">
+                    </div>
+
+                    <div id="file-info"
+                        class="mt-3 p-3 bg-light rounded d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong id="file-name"></strong>
+                            <small class="text-muted ms-2" id="file-size"></small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="clearFile()">Xoa</button>
+                    </div>
+
+                    <div class="text-end mt-3">
+                        <button class="btn btn-primary px-4" onclick="doSearch()">
+                            <span id="spinner" class="spinner-border spinner-border-sm me-2"></span>
+                            Tim kiem
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log -->
+            <div class="col-12" id="log-section" style="display:none">
+                <div class="card p-4">
+                    <h5 class="fw-semibold mb-3">Log qua trinh xu ly</h5>
+                    <div id="log-box"></div>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div class="col-12" id="result-section" style="display:none">
+                <div class="card p-4">
+                    <h5 class="fw-semibold mb-3">Top 3 Van ban Tuong dong Nhat</h5>
+                    <div class="row g-3" id="result-cards"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const colors = ["#FFD700", "#C0C0C0", "#CD7F32"];
+        let selectedFile = null;
+
+        // Drag & drop
+        const dropZone = document.getElementById("drop-zone");
+        dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+        dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+        dropZone.addEventListener("drop", e => {
+            e.preventDefault();
+            dropZone.classList.remove("dragover");
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith(".txt")) setFile(file);
+            else alert("Chi chap nhan file .txt!");
+        });
+
+        function onFileSelect(input) {
+            if (input.files[0]) setFile(input.files[0]);
+        }
+
+        function setFile(file) {
+            selectedFile = file;
+            document.getElementById("file-name").textContent = file.name;
+            document.getElementById("file-size").textContent = (file.size / 1024).toFixed(1) + " KB";
+            document.getElementById("file-info").style.display = "flex";
+            document.getElementById("drop-zone").style.display = "none";
+        }
+
+        function clearFile() {
+            selectedFile = null;
+            document.getElementById("file-input").value = "";
+            document.getElementById("file-info").style.display = "none";
+            document.getElementById("drop-zone").style.display = "block";
+            document.getElementById("log-section").style.display = "none";
+            document.getElementById("result-section").style.display = "none";
+        }
+
+        async function doSearch() {
+            if (!selectedFile) { alert("Vui long chon file .txt!"); return; }
+
+            document.getElementById("log-box").innerHTML = "";
+            document.getElementById("log-section").style.display = "block";
+            document.getElementById("result-section").style.display = "none";
+            document.getElementById("spinner").style.display = "inline-block";
+
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+
+            try {
+                const res = await fetch("/search", { method: "POST", body: formData });
+                const data = await res.json();
+
+                if (data.error) {
+                    appendLog("Loi: " + data.error);
+                    document.getElementById("spinner").style.display = "none";
+                    return;
+                }
+
+                const logBox = document.getElementById("log-box");
+                for (let i = 0; i < data.logs.length; i++) {
+                    await new Promise(r => setTimeout(r, 80));
+                    const div = document.createElement("div");
+                    div.className = "log-line";
+                    div.innerHTML = data.logs[i];
+                    logBox.appendChild(div);
+                    logBox.scrollTop = logBox.scrollHeight;
+                }
+
+                document.getElementById("result-section").style.display = "block";
+                const container = document.getElementById("result-cards");
+                container.innerHTML = "";
+                data.results.forEach(r => {
+                    container.innerHTML += `
+          <div class="col-md-4">
+            <div class="card result-card p-3 text-center h-100"
+              style="border-top: 4px solid ${colors[r.rank - 1]}">
+              <div class="rank-badge">#${r.rank}</div>
+              <h6 class="mt-2 text-truncate" title="${r.filename}">${r.filename}</h6>
+              <div class="my-2">
+                <div class="progress" style="height: 20px;">
+                  <div class="progress-bar" role="progressbar"
+                    style="width: ${r.similarity}%; background: ${colors[r.rank - 1]}">
+                  </div>
+                </div>
+              </div>
+              <h4 class="fw-bold" style="color: ${colors[r.rank - 1]}">${r.similarity}%</h4>
+              <small class="text-muted">Do tuong dong</small>
+            </div>
+          </div>`;
+                });
+
+            } catch (e) {
+                appendLog("Loi ket noi server");
+            }
+
+            document.getElementById("spinner").style.display = "none";
+        }
+
+        function appendLog(msg) {
+            const logBox = document.getElementById("log-box");
+            const div = document.createElement("div");
+            div.className = "log-line";
+            div.innerHTML = msg;
+            logBox.appendChild(div);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+    </script>
+</body>
+
+</html>

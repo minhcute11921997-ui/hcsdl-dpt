@@ -1,6 +1,6 @@
 import sqlite3
 from sklearn.feature_extraction.text import TfidfVectorizer
-
+import numpy as np
 # 1. Đọc dữ liệu từ SQLite
 print("1. Đang đọc dữ liệu từ SQLite...")
 conn = sqlite3.connect("ir_database.db")
@@ -59,6 +59,13 @@ if batch:
 import pickle
 with open("vectorizer.pkl", "wb") as f:
     pickle.dump(vectorizer, f)
+
+np.save("tfidf_matrix.npy", matrix_array)
+
+with open("filenames.pkl", "wb") as f:
+    pickle.dump(file_names, f)
+
+print("✅ Đã cache ma trận ra tfidf_matrix.npy")
 
 conn.commit()
 conn.close()
