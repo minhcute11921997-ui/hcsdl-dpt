@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, jsonify
 import sqlite3, pickle, numpy as np, os, threading
 from sklearn.metrics.pairwise import cosine_similarity
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 app = Flask(__name__)
 log_messages = []
 search_lock = threading.Lock()
@@ -43,24 +45,29 @@ def search():
             input_text = input_text_raw
 
         # Buoc 3: Load vectorizer
+        vectorizer_path = os.path.join(BASE_DIR, "vectorizer.pkl")
         add_log("Dang load vectorizer.pkl...")
-        if not os.path.exists("vectorizer.pkl"):
+        if not os.path.exists(vectorizer_path):
             return jsonify({"error": "Chua co vectorizer.pkl, hay chay chuanhoa.py truoc!"}), 500
-        with open("vectorizer.pkl", "rb") as f:
+        with open(vectorizer_path, "rb") as f:
             vectorizer = pickle.load(f)
         feature_names = vectorizer.get_feature_names_out()
         add_log(f"Vectorizer loaded: {len(feature_names)} tu khoa")
 
         # Buoc 4: Load ma tran TF-IDF
-        if os.path.exists("tfidf_matrix.npy") and os.path.exists("filenames.pkl"):
+        matrix_path   = os.path.join(BASE_DIR, "tfidf_matrix.npy")
+        filenames_path = os.path.join(BASE_DIR, "filenames.pkl")
+
+        if os.path.exists(matrix_path) and os.path.exists(filenames_path):
             add_log("Dang load ma tran tu cache (tfidf_matrix.npy)...")
-            tfidf_matrix = np.load("tfidf_matrix.npy")
-            with open("filenames.pkl", "rb") as f:
+            tfidf_matrix = np.load(matrix_path)
+            with open(filenames_path, "rb") as f:
                 file_names = pickle.load(f)
             add_log(f"Load cache xong: ma tran {tfidf_matrix.shape}")
         else:
             add_log("Khong co cache -> Dang rebuild ma tran tu SQLite...")
-            conn = sqlite3.connect("ir_database.db")
+            db_path = os.path.join(BASE_DIR, "ir_database.db")
+            conn = sqlite3.connect(db_path)
             cur = conn.cursor()
             cur.execute("SELECT id, filename FROM documents ORDER BY id")
             doc_rows   = cur.fetchall()
@@ -103,7 +110,8 @@ def search():
 
         # Buoc 7: Luu ket qua vao DB
         add_log("Dang luu ket qua vao search_results...")
-        conn = sqlite3.connect("ir_database.db")
+        db_path = os.path.join(BASE_DIR, "ir_database.db")
+        conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.executemany(
             "INSERT INTO search_results (query_file, matched_file, similarity, rank) VALUES (?, ?, ?, ?)",

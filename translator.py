@@ -3,7 +3,7 @@ MODEL_NAME = "Helsinki-NLP/opus-mt-vi-en"
 _tokenizer = None
 _model = None
 
-def translate_vi_to_en(text: str, chunk_size: int = 2000) -> str:
+def translate_vi_to_en(text: str, chunk_size: int = 3000) -> str:
     global _tokenizer, _model
     if _model is None:
         from transformers import MarianMTModel, MarianTokenizer  
