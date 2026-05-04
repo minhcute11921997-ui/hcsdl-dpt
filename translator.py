@@ -3,7 +3,7 @@ MODEL_NAME = "Helsinki-NLP/opus-mt-vi-en"
 _tokenizer = None
 _model = None
 
-def translate_vi_to_en(text: str, chunk_size: int = 3000) -> str:
+def translate_vi_to_en(text: str, chunk_size: int = 200) -> str:
     global _tokenizer, _model
     if _model is None:
         from transformers import MarianMTModel, MarianTokenizer  
@@ -33,7 +33,7 @@ def translate_vi_to_en(text: str, chunk_size: int = 3000) -> str:
             truncation=True,
             max_length=512
         )
-        outputs = _model.generate(**inputs, num_beams=4)
+        outputs = _model.generate(**inputs, num_beams=5)
         translated_parts.append(_tokenizer.decode(outputs[0], skip_special_tokens=True))
 
     return " ".join(translated_parts)
