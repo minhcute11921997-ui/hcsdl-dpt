@@ -34,10 +34,6 @@ with app.app_context():
 def add_log(msg):
     log_messages.append(msg)
 
-def is_vietnamese(text):
-    viet_chars = sum(1 for c in text if "\u00C0" <= c <= "\u1EF9")
-    return viet_chars / max(len(text), 1) > 0.02
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -55,21 +51,11 @@ def search():
         if not uploaded_file.filename.endswith(".txt"):
             return jsonify({"error": "Chi chap nhan file .txt!"}), 400
 
-        input_text_raw = uploaded_file.read().decode("utf-8", errors="ignore").strip()
-        word_count = len(input_text_raw.split())
+        input_text = uploaded_file.read().decode("utf-8", errors="ignore").strip()
+        word_count = len(input_text.split())
         add_log(f"Doc file: {uploaded_file.filename} ({word_count} tu)")
 
-        # Buoc 1: Phat hien ngon ngu
-        if is_vietnamese(input_text_raw):
-            add_log("Phat hien tieng Viet -> Dang dich sang tieng Anh...")
-            from translator import translate_vi_to_en
-            input_text = translate_vi_to_en(input_text_raw)
-            add_log(f"Dich xong: \"{input_text[:80]}...\"")
-        else:
-            add_log("Phat hien tieng Anh -> Bo qua buoc dich")
-            input_text = input_text_raw
-
-        # Buoc 2: Kiem tra cache
+        # Buoc 1: Kiem tra cache
         if _vectorizer is None:
             return jsonify({"error": "Chua co vectorizer.pkl, hay chay chuanhoa.py truoc!"}), 500
 
@@ -79,7 +65,7 @@ def search():
         feature_names = vectorizer.get_feature_names_out()
         add_log(f"Vectorizer (cache): {len(feature_names)} tu khoa | Ma tran: {tfidf_matrix.shape}")
 
-        # Buoc 3: Vector hoa query
+        # Buoc 2: Vector hoa query
         add_log("Dang vector hoa van ban dau vao...")
         query_vector = vectorizer.transform([input_text])
         query_array  = query_vector.toarray()[0]
@@ -90,7 +76,7 @@ def search():
             if score > 0:
                 add_log(f"&nbsp;&nbsp;&nbsp;- <b>{term}</b>: {score:.4f}")
 
-        # Buoc 4: Tinh Cosine Similarity
+        # Buoc 3: Tinh Cosine Similarity
         add_log("Dang tinh Cosine Similarity...")
         similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
         add_log(f"Tinh xong {len(similarities)} diem tuong dong")
@@ -103,7 +89,7 @@ def search():
             results.append({"rank": rank, "filename": fname, "similarity": round(sim, 2)})
             add_log(f"#{rank}: {fname} - {sim:.2f}%")
 
-        # Buoc 5: Luu ket qua vao DB
+        # Buoc 4: Luu ket qua vao DB
         add_log("Dang luu ket qua vao search_results...")
         db_path = os.path.join(BASE_DIR, "ir_database.db")
         conn = sqlite3.connect(db_path)

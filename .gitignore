@@ -1,0 +1,4 @@
+/dataset/
+*.db
+*.pkl
+*.npy
